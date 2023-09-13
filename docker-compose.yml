@@ -3,7 +3,7 @@ services:
   nosql-db:
     image: mongo
     ports:
-      - "27018:27017"
+      - "27017:27017"
     container_name: nosql-db
     volumes:
       - ./db/:/data/db
@@ -22,8 +22,7 @@ services:
       - /app/products/node_modules
     env_file:
       - ./products/.env.dev
-    environment:
-      - MONGODB_URI=mongodb://nosql-db:27017/shopping_ms_products
+
   shopping:
     build:
       dockerfile: Dockerfile
@@ -39,8 +38,7 @@ services:
       - /app/shopping/node_modules
     env_file:
       - ./shopping/.env.dev
-    environment:
-      - MONGODB_URI=mongodb://nosql-db:27017/shopping_ms_shopping
+
   customer:
     build:
       dockerfile: Dockerfile
@@ -57,8 +55,7 @@ services:
       - /app/customer/node_modules
     env_file:
       - ./customer/.env.dev
-    environment:
-      - MONGODB_URI=mongodb://nosql-db:27017/shopping_ms_customer
+
   nginx-proxy:
     build:
       dockerfile: Dockerfile

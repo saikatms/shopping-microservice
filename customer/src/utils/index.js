@@ -1,9 +1,7 @@
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
-
 const { APP_SECRET,
   EXCHANGE_NAME,
-  SHOPPING_SERVICE,
   CUSTOMER_SERVICE,
   QUEUE_NAME,
   MSG_QUEUE_URL,
@@ -27,27 +25,21 @@ module.exports.ValidatePassword = async (
   return (await this.GeneratePassword(enteredPassword, salt)) === savedPassword;
 };
 
-module.exports.GenerateSignature = async (payload) => {
-  try {
-    return await jwt.sign(payload, APP_SECRET, { expiresIn: "30d" });
-  } catch (error) {
-    console.log(error);
-    return error;
-  }
-};
-
-module.exports.ValidateSignature = async (req) => {
-  try {
+(module.exports.GenerateSignature = async (payload) => {
+  return await jwt.sign(payload, APP_SECRET, { expiresIn: "1d" });
+}),
+  
+(module.exports.ValidateSignature = async (req) => {
     const signature = req.get("Authorization");
-    console.log(signature);
-    const payload = await jwt.verify(signature.split(" ")[1], APP_SECRET);
-    req.user = payload;
-    return true;
-  } catch (error) {
-    console.log(error);
+
+    if (signature) {
+      const payload = await jwt.verify(signature.split(" ")[1], APP_SECRET);
+      req.user = payload;
+      return true;
+    }
     return false;
-  }
-};
+});
+
 
 module.exports.FormateData = (data) => {
   if (data) {
@@ -68,6 +60,11 @@ module.exports.CreateChannel = async () => {
   } catch (err) {
     throw err;
   }
+};
+
+module.exports.PublishMessage = (channel, service, msg) => {
+  channel.publish(EXCHANGE_NAME, service, Buffer.from(msg));
+  console.log("Sent: ", msg);
 };
 
 module.exports.SubscribeMessage = async (channel, service) => {

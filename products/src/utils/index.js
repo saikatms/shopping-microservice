@@ -1,51 +1,46 @@
-const bcrypt = require("bcrypt");
+const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const { APP_SECRET,
-  EXCHANGE_NAME,
-  SHOPPING_SERVICE,
-  MSG_QUEUE_URL,
- } = require("../config");
 const amqplib = require("amqplib");
+const { v4: uuid4 } = require("uuid");
+const {
+  APP_SECRET,
+  BASE_URL,
+  EXCHANGE_NAME,
+  MSG_QUEUE_URL,
+} = require("../config");
+
+let amqplibConnection = null;
 
 //Utility functions
-module.exports.GenerateSalt = async () => {
+(module.exports.GenerateSalt = async () => {
   return await bcrypt.genSalt();
-};
-
-module.exports.GeneratePassword = async (password, salt) => {
-  return await bcrypt.hash(password, salt);
-};
+}),
+  (module.exports.GeneratePassword = async (password, salt) => {
+    return await bcrypt.hash(password, salt);
+  });
 
 module.exports.ValidatePassword = async (
   enteredPassword,
   savedPassword,
   salt
-
 ) => {
   return (await this.GeneratePassword(enteredPassword, salt)) === savedPassword;
 };
 
-module.exports.GenerateSignature = async (payload) => {
-  try {
-    return await jwt.sign(payload, APP_SECRET, { expiresIn: "30d" });
-  } catch (error) {
-    console.log(error);
-    return error;
-  }
-};
-
-module.exports.ValidateSignature = async (req) => {
-  try {
+(module.exports.GenerateSignature = async (payload) => {
+  return await jwt.sign(payload, APP_SECRET, { expiresIn: "1d" });
+}),
+  (module.exports.ValidateSignature = async (req) => {
     const signature = req.get("Authorization");
-    console.log(signature);
-    const payload = await jwt.verify(signature.split(" ")[1], APP_SECRET);
-    req.user = payload;
-    return true;
-  } catch (error) {
-    console.log(error);
+
+    if (signature) {
+      const payload = await jwt.verify(signature.split(" ")[1], APP_SECRET);
+      req.user = payload;
+      return true;
+    }
+
     return false;
-  }
-};
+  });
 
 module.exports.FormateData = (data) => {
   if (data) {
@@ -55,35 +50,18 @@ module.exports.FormateData = (data) => {
   }
 };
 
-// //Raise Events
-// module.exports.PublishCustomerEvent = async (payload) => {
-//   // axios.post("http://customer:8001/app-events/", {
-//   //   payload,
-//   // });
+//Message Broker
+const getChannel = async () => {
+  if (amqplibConnection === null) {
+    amqplibConnection = await amqplib.connect(MSG_QUEUE_URL);
+  }
+  return await amqplibConnection.createChannel();
+};
 
-//       axios.post(`http://localhost:8000/customer/app-events/`,{
-//           payload
-//       });
-// };
- 
-
-// module.exports.PublishShoppingEvent = async (payload) => {
-//   axios.post('http://localhost:8000/shopping/app-events/',{
-//           payload
-//   });
-
-//   // axios.post(`http://shopping:8003/app-events/`, {
-//   //   payload,
-//   // });
-// };
-
-//message broker 
 module.exports.CreateChannel = async () => {
   try {
-    const connection = await amqplib.connect(MSG_QUEUE_URL);
-    console.log("connection?>>>>>>>>>>>>>>>>>",connection);
-    const channel = await connection.createChannel();
-    await channel.assertQueue(EXCHANGE_NAME, "direct", { autoDelete: false, durable: true, exclusive: false});
+    const channel = await getChannel();
+    await channel.assertQueue(EXCHANGE_NAME, "direct", { durable: true });
     return channel;
   } catch (err) {
     throw err;
@@ -95,25 +73,31 @@ module.exports.PublishMessage = (channel, service, msg) => {
   console.log("Sent: ", msg);
 };
 
-
-module.exports.SubscribeMessage = async (channel, service) => {
-  await channel.assertExchange(EXCHANGE_NAME, "direct", { autoDelete: false, durable: true, exclusive: false});
-  const q = await channel.assertQueue("", { autoDelete: false, durable: true, exclusive: false});
-  console.log(` Waiting for messages in queue: ${q.queue}`);
-
-  channel.bindQueue(q.queue, EXCHANGE_NAME, CUSTOMER_SERVICE);
-
+module.exports.RPCObserver = async (RPC_QUEUE_NAME, service) => {
+  const channel = await getChannel();
+  await channel.assertQueue(RPC_QUEUE_NAME, {
+    durable: false,
+  });
+  channel.prefetch(1);
   channel.consume(
-    q.queue,
-    (msg) => {
+    RPC_QUEUE_NAME,
+    async (msg) => {
       if (msg.content) {
-        console.log("the message is:", msg.content.toString());
-        service.SubscribeEvents(msg.content.toString());
+        // DB Operation
+        const payload = JSON.parse(msg.content.toString());
+        const response = await service.serveRPCRequest(payload);
+        channel.sendToQueue(
+          msg.properties.replyTo,
+          Buffer.from(JSON.stringify(response)),
+          {
+            correlationId: msg.properties.correlationId,
+          }
+        );
+        channel.ack(msg);
       }
-      console.log("[X] received");
     },
     {
-      noAck: true,
+      noAck: false,
     }
   );
 };

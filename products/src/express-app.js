@@ -13,9 +13,6 @@ module.exports = async (app) => {
     app.use(express.static(__dirname + '/public'))
    
     const channel = await CreateChannel();
-  
-    // Listener
-    // appEvents(app);
 
     //api
     products(app, channel);
